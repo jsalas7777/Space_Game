@@ -1,0 +1,151 @@
+.page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #050816;
+  font-family: var(--font-geist-sans);
+}
+
+.page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.startScreen {
+  position: relative;
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at top, rgba(110, 198, 255, 0.14), transparent 42%),
+    linear-gradient(180deg, #050816 0%, #09172b 55%, #1a0f2e 100%);
+}
+
+.startCard {
+  z-index: 1;
+  width: min(100%, 34rem);
+  padding: clamp(1.75rem, 4vw, 3rem);
+  border: 1px solid rgba(124, 225, 255, 0.24);
+  border-radius: 1.5rem;
+  background: linear-gradient(180deg, rgba(5, 8, 22, 0.82), rgba(8, 19, 41, 0.56));
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
+  text-align: center;
+  backdrop-filter: blur(14px);
+}
+
+.startEyebrow {
+  margin-bottom: 0.75rem;
+  color: #7ce1ff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.startCard h2 {
+  color: #f4fbff;
+  font-size: clamp(2.3rem, 7vw, 4.8rem);
+  line-height: 0.94;
+  letter-spacing: -0.08em;
+  text-wrap: balance;
+}
+
+.startCopy {
+  margin-top: 1rem;
+  color: rgba(226, 241, 255, 0.8);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.startButton {
+  margin-top: 1.5rem;
+  border: 1px solid rgba(124, 225, 255, 0.45);
+  border-radius: 999px;
+  padding: 0.95rem 1.4rem;
+  background: linear-gradient(180deg, #7ce1ff, #42aed4);
+  color: #04111f;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    filter 160ms ease;
+  box-shadow: 0 16px 38px rgba(66, 174, 212, 0.3);
+}
+
+.startButton:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow: 0 20px 44px rgba(66, 174, 212, 0.38);
+}
+
+.startButton:focus-visible {
+  outline: 2px solid #f4fbff;
+  outline-offset: 4px;
+}
+
+.hud {
+  position: absolute;
+  top: clamp(1.5rem, 3vw, 2.5rem);
+  left: clamp(1.5rem, 4vw, 3rem);
+  z-index: 1;
+  max-width: 30rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid rgba(124, 225, 255, 0.28);
+  border-radius: 1.25rem;
+  background: linear-gradient(180deg, rgba(5, 8, 22, 0.72), rgba(8, 19, 41, 0.38));
+  backdrop-filter: blur(10px);
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
+}
+
+.eyebrow {
+  margin-bottom: 0.6rem;
+  color: #7ce1ff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.hud h1 {
+  color: #f4fbff;
+  font-size: clamp(2.2rem, 6vw, 4.8rem);
+  line-height: 0.94;
+  letter-spacing: -0.08em;
+  text-wrap: balance;
+}
+
+.copy {
+  margin-top: 1rem;
+  color: rgba(226, 241, 255, 0.8);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+@media (max-width: 640px) {
+  .startScreen {
+    padding: 1rem;
+  }
+
+  .startCard {
+    padding: 1.4rem 1.15rem;
+  }
+
+  .hud {
+    right: 1rem;
+    left: 1rem;
+    max-width: none;
+    padding: 1rem 1.1rem;
+  }
+
+  .copy {
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+}
