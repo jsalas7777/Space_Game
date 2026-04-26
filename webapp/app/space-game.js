@@ -13,6 +13,14 @@ const ROCK_LAYOUT = [
   { worldX: 0.8, worldY: 0.18, radius: 20 },
   { worldX: 0.84, worldY: 0.7, radius: 32 },
 ];
+const COIN_LAYOUT = [
+  { worldX: 0.16, worldY: 0.34, radius: 12 },
+  { worldX: 0.3, worldY: 0.72, radius: 12 },
+  { worldX: 0.46, worldY: 0.16, radius: 12 },
+  { worldX: 0.62, worldY: 0.46, radius: 12 },
+  { worldX: 0.74, worldY: 0.8, radius: 12 },
+  { worldX: 0.88, worldY: 0.26, radius: 12 },
+];
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -21,6 +29,7 @@ function clamp(value, min, max) {
 export default function SpaceGame() {
   const canvasRef = useRef(null);
   const [hasStarted, setHasStarted] = useState(false);
+  const [score, setScore] = useState(0);
 
   useEffect(() => {
     if (!hasStarted) {
@@ -50,6 +59,7 @@ export default function SpaceGame() {
       accelerateInput: 0,
       turnInput: 0,
       rocks: [],
+      coins: [],
       animationFrame: 0,
       lastTime: 0,
       devicePixelRatio: 1,
@@ -100,6 +110,10 @@ export default function SpaceGame() {
 
       if (state.rocks.length === 0) {
         state.rocks = ROCK_LAYOUT.map(createRock);
+      }
+
+      if (state.coins.length === 0) {
+        state.coins = COIN_LAYOUT.map((coin) => ({ ...coin }));
       }
     };
 
@@ -235,6 +249,54 @@ export default function SpaceGame() {
       }
     };
 
+    const drawCoins = (time) => {
+      for (const coin of state.coins) {
+        const x = coin.worldX * state.width;
+        const y = coin.worldY * state.height;
+        const pulse = 1 + Math.sin(time * 0.006 + coin.worldX * 10) * 0.08;
+
+        context.save();
+        context.translate(x, y);
+        context.scale(pulse, pulse);
+
+        context.fillStyle = "#ffd35a";
+        context.strokeStyle = "#fff1b2";
+        context.lineWidth = 2;
+        context.beginPath();
+        context.arc(0, 0, coin.radius, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+
+        context.fillStyle = "rgba(255, 244, 196, 0.7)";
+        context.beginPath();
+        context.arc(-coin.radius * 0.25, -coin.radius * 0.28, coin.radius * 0.35, 0, Math.PI * 2);
+        context.fill();
+
+        context.restore();
+      }
+    };
+
+    const collectCoins = () => {
+      if (state.isDestroyed) {
+        return;
+      }
+
+      state.coins = state.coins.filter((coin) => {
+        const coinX = coin.worldX * state.width;
+        const coinY = coin.worldY * state.height;
+        const dx = coinX - state.shipX;
+        const dy = coinY - state.shipY;
+        const collisionDistance = coin.radius + SHIP_COLLISION_RADIUS;
+
+        if (dx * dx + dy * dy <= collisionDistance * collisionDistance) {
+          setScore((currentScore) => currentScore + 1);
+          return false;
+        }
+
+        return true;
+      });
+    };
+
     const detectCollisions = (time) => {
       if (state.isDestroyed) {
         return;
@@ -294,6 +356,8 @@ export default function SpaceGame() {
 
       drawBackground();
       drawRocks();
+      drawCoins(time);
+      collectCoins();
       detectCollisions(time);
       drawShip();
       drawDestroyedOverlay(time);
@@ -336,7 +400,10 @@ export default function SpaceGame() {
           <button
             type="button"
             className={styles.startButton}
-            onClick={() => setHasStarted(true)}
+            onClick={() => {
+              setScore(0);
+              setHasStarted(true);
+            }}
           >
             Start a New Game
           </button>
@@ -348,13 +415,11 @@ export default function SpaceGame() {
   return (
     <>
       <canvas ref={canvasRef} aria-label="Space game canvas" />
-      <div className={styles.hud}>
-        <p className={styles.eyebrow}>Sector A-01</p>
-        <h1>Space Game Command</h1>
-        <p className={styles.copy}>
-          A root-level canvas now drives the webapp. Use the arrow keys or WASD
-          to drift through the field.
-        </p>
+      <div className={styles.scoreboardPanel}>
+        <div className={styles.scoreboard} aria-label={`Score: ${score}`}>
+          <span className={styles.scoreLabel}>Score</span>
+          <strong className={styles.scoreValue}>{score}</strong>
+        </div>
       </div>
     </>
   );
