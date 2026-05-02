@@ -60,8 +60,12 @@ export default function SpaceGame() {
       turnInput: 0,
       rocks: [],
       coins: [],
+      trail: [],
       animationFrame: 0,
       lastTime: 0,
+      lastTrailSpawn: 0,
+      lastTrailX: 0,
+      lastTrailY: 0,
       devicePixelRatio: 1,
       isDestroyed: false,
       flashUntil: 0,
@@ -91,6 +95,53 @@ export default function SpaceGame() {
       }),
     });
 
+    const createCoinWave = () =>
+      COIN_LAYOUT.map((coin) => {
+        const marginX = 0.08;
+        const marginY = 0.1;
+        const shipWorldX = state.width === 0 ? 0.5 : state.shipX / state.width;
+        const shipWorldY = state.height === 0 ? 0.72 : state.shipY / state.height;
+        let worldX = coin.worldX;
+        let worldY = coin.worldY;
+        let attempts = 0;
+
+        while (attempts < 40) {
+          const candidateX = clamp(
+            coin.worldX + (Math.random() - 0.5) * 0.22,
+            marginX,
+            1 - marginX
+          );
+          const candidateY = clamp(
+            coin.worldY + (Math.random() - 0.5) * 0.22,
+            marginY,
+            1 - marginY
+          );
+          const isNearShip =
+            Math.hypot(candidateX - shipWorldX, candidateY - shipWorldY) < 0.12;
+          const overlapsRock = state.rocks.some((rock) => {
+            const dx = (candidateX - rock.worldX) * state.width;
+            const dy = (candidateY - rock.worldY) * state.height;
+            const minDistance = coin.radius + rock.radius + 18;
+
+            return dx * dx + dy * dy < minDistance * minDistance;
+          });
+
+          if (!isNearShip && !overlapsRock) {
+            worldX = candidateX;
+            worldY = candidateY;
+            break;
+          }
+
+          attempts += 1;
+        }
+
+        return {
+          ...coin,
+          worldX,
+          worldY,
+        };
+      });
+
     const resize = () => {
       state.width = window.innerWidth;
       state.height = window.innerHeight;
@@ -113,7 +164,7 @@ export default function SpaceGame() {
       }
 
       if (state.coins.length === 0) {
-        state.coins = COIN_LAYOUT.map((coin) => ({ ...coin }));
+        state.coins = createCoinWave();
       }
     };
 
@@ -212,6 +263,66 @@ export default function SpaceGame() {
       context.restore();
     };
 
+    const updateTrail = (delta, time) => {
+      state.trail = state.trail
+        .map((marker) => ({
+          ...marker,
+          age: marker.age + delta,
+        }))
+        .filter((marker) => marker.age < marker.life);
+
+      if (state.isDestroyed) {
+        return;
+      }
+
+      const speed = Math.hypot(state.velocityX, state.velocityY);
+      const thrusterOffsetX = -Math.cos(state.shipAngle) * 18;
+      const thrusterOffsetY = -Math.sin(state.shipAngle) * 18;
+      const trailX = state.shipX + thrusterOffsetX;
+      const trailY = state.shipY + thrusterOffsetY;
+      const distanceSinceLastMarker = Math.hypot(
+        trailX - state.lastTrailX,
+        trailY - state.lastTrailY
+      );
+
+      if (speed < 0.16 || time - state.lastTrailSpawn < 55 || distanceSinceLastMarker < 16) {
+        return;
+      }
+
+      state.lastTrailSpawn = time;
+      state.lastTrailX = trailX;
+      state.lastTrailY = trailY;
+
+      state.trail.push({
+        x: trailX,
+        y: trailY,
+        age: 0,
+        life: 10000 + Math.random() * 600,
+        radius: 4 + Math.min(speed * 2.2, 5),
+      });
+
+      if (state.trail.length > 180) {
+        state.trail.splice(0, state.trail.length - 180);
+      }
+    };
+
+    const drawTrail = () => {
+      for (const marker of state.trail) {
+        const progress = marker.age / marker.life;
+        const alpha = Math.pow(1 - progress, 1.35) * 0.4;
+        const growth = Math.exp(progress * 1.35);
+        const radius = marker.radius * growth;
+
+        context.save();
+        context.globalAlpha = alpha;
+        context.fillStyle = progress < 0.45 ? "#9fe7ff" : "#6c90b2";
+        context.beginPath();
+        context.arc(marker.x, marker.y, radius, 0, Math.PI * 2);
+        context.fill();
+        context.restore();
+      }
+    };
+
     const drawRocks = () => {
       for (const rock of state.rocks) {
         const x = rock.worldX * state.width;
@@ -281,6 +392,8 @@ export default function SpaceGame() {
         return;
       }
 
+      let collectedAny = false;
+
       state.coins = state.coins.filter((coin) => {
         const coinX = coin.worldX * state.width;
         const coinY = coin.worldY * state.height;
@@ -289,12 +402,17 @@ export default function SpaceGame() {
         const collisionDistance = coin.radius + SHIP_COLLISION_RADIUS;
 
         if (dx * dx + dy * dy <= collisionDistance * collisionDistance) {
+          collectedAny = true;
           setScore((currentScore) => currentScore + 1);
           return false;
         }
 
         return true;
       });
+
+      if (collectedAny && state.coins.length === 0) {
+        state.coins = createCoinWave();
+      }
     };
 
     const detectCollisions = (time) => {
@@ -354,7 +472,9 @@ export default function SpaceGame() {
         state.shipY = clamp(state.shipY + state.velocityY * 0.016, 64, state.height - 64);
       }
 
+      updateTrail(delta, time);
       drawBackground();
+      drawTrail();
       drawRocks();
       drawCoins(time);
       collectCoins();
