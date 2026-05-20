@@ -90,6 +90,54 @@
   outline-offset: 4px;
 }
 
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.buttonRow .startButton {
+  margin-top: 0;
+}
+
+.secondaryButton,
+.ghostButton {
+  border-radius: 999px;
+  padding: 0.95rem 1.4rem;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.secondaryButton {
+  border: 1px solid rgba(255, 209, 92, 0.42);
+  background: linear-gradient(180deg, rgba(255, 211, 90, 0.16), rgba(255, 211, 90, 0.06));
+  color: #ffe492;
+  box-shadow: 0 16px 38px rgba(255, 179, 65, 0.14);
+}
+
+.secondaryButton:hover,
+.ghostButton:hover {
+  transform: translateY(-1px);
+}
+
+.secondaryButton:focus-visible,
+.ghostButton:focus-visible {
+  outline: 2px solid #f4fbff;
+  outline-offset: 4px;
+}
+
 .scoreboardPanel {
   position: absolute;
   top: clamp(1.5rem, 3vw, 2.5rem);
@@ -126,6 +174,26 @@
   letter-spacing: -0.06em;
 }
 
+.hudGrid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.controlsPanel {
+  position: absolute;
+  top: clamp(1.5rem, 3vw, 2.5rem);
+  right: clamp(1.5rem, 4vw, 3rem);
+  z-index: 1;
+}
+
+.ghostButton {
+  border: 1px solid rgba(124, 225, 255, 0.35);
+  background: rgba(5, 8, 22, 0.48);
+  color: #dff7ff;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(10px);
+}
+
 @media (max-width: 640px) {
   .startScreen {
     padding: 1rem;
@@ -140,9 +208,20 @@
     left: 1rem;
   }
 
+  .controlsPanel {
+    top: auto;
+    right: 1rem;
+    bottom: 1rem;
+  }
+
   .scoreboard {
     min-width: 0;
     text-align: left;
+  }
+
+  .buttonRow {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .copy {

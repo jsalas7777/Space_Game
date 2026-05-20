@@ -2,8 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import styles from "./page.module.css";
+import {
+  AISpaceShip,
+  SpaceShip,
+  clamp,
+  disposeWeightSnapshot,
+} from "./space-ship";
 
-const SHIP_COLLISION_RADIUS = 18;
 const ROCK_LAYOUT = [
   { worldX: 0.2, worldY: 0.2, radius: 28 },
   { worldX: 0.36, worldY: 0.48, radius: 22 },
@@ -21,18 +26,82 @@ const COIN_LAYOUT = [
   { worldX: 0.74, worldY: 0.8, radius: 12 },
   { worldX: 0.88, worldY: 0.26, radius: 12 },
 ];
+const AI_SHIP_COLORS = [
+  ["#eef5ff", "#78daff"],
+  ["#ffeccf", "#ffb15f"],
+  ["#fce1ff", "#ff7ed4"],
+  ["#ddffd8", "#71e28b"],
+  ["#dff7ff", "#4ec7d8"],
+  ["#f5ddff", "#ba7fff"],
+  ["#fff7de", "#ffd24d"],
+  ["#ebffef", "#7de6b0"],
+  ["#ffe3e3", "#ff8c8c"],
+  ["#e4f0ff", "#7ca7ff"],
+  ["#f0ffe4", "#91d85f"],
+  ["#fff0f0", "#f29d6f"],
+];
+const AI_SHIP_COUNT = 12;
+const AI_ROUND_DURATION_MS = 60000;
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
+function getShipFitness(ship) {
+  return ship.score * 1000 - (ship.isDestroyed ? 0 : 1) + ship.y * 0.001;
+}
+
+function createRock({ worldX, worldY, radius }) {
+  return {
+    worldX,
+    worldY,
+    radius,
+    rotation: Math.random() * Math.PI * 2,
+    points: Array.from({ length: 8 }, (_, index) => {
+      const angle = (Math.PI * 2 * index) / 8;
+      const variance = 0.68 + Math.random() * 0.45;
+
+      return { angle, variance };
+    }),
+  };
+}
+
+function getHudState(mode, ships) {
+  if (mode === "ai") {
+    const bestShip = ships.reduce((best, ship) => {
+      if (!best) {
+        return ship;
+      }
+
+      return getShipFitness(ship) > getShipFitness(best) ? ship : best;
+    }, null);
+
+    return {
+      score: 0,
+      bestScore: bestShip?.score ?? 0,
+      aliveCount: ships.filter((ship) => !ship.isDestroyed).length,
+      totalShips: ships.length,
+    };
+  }
+
+  return {
+    score: ships[0]?.score ?? 0,
+    bestScore: 0,
+    aliveCount: 0,
+    totalShips: 0,
+  };
 }
 
 export default function SpaceGame() {
   const canvasRef = useRef(null);
-  const [hasStarted, setHasStarted] = useState(false);
-  const [score, setScore] = useState(0);
+  const [mode, setMode] = useState(null);
+  const [hud, setHud] = useState({
+    score: 0,
+    bestScore: 0,
+    aliveCount: 0,
+    totalShips: 0,
+    generation: 0,
+    timeLeft: AI_ROUND_DURATION_MS / 1000,
+  });
 
   useEffect(() => {
-    if (!hasStarted) {
+    if (!mode) {
       return undefined;
     }
 
@@ -48,59 +117,91 @@ export default function SpaceGame() {
       return undefined;
     }
 
+    const isAiMode = mode === "ai";
+    const ships = isAiMode
+      ? AI_SHIP_COLORS.map(([bodyColor, accentColor], index) => {
+          const hueOffset = 15 + index * 12;
+
+          return new AISpaceShip({
+            id: `ai-${index + 1}`,
+            bodyColor,
+            accentColor,
+            thrusterColor: `hsla(${hueOffset}, 96%, 64%, 0.92)`,
+            brakeColor: `hsla(${180 + hueOffset}, 92%, 72%, 0.82)`,
+          });
+        })
+      : [
+          new SpaceShip({
+            id: "pilot",
+            bodyColor: "#d9f6ff",
+            accentColor: "#7ce1ff",
+          }),
+        ];
+
     const state = {
       width: 0,
       height: 0,
-      shipX: 0,
-      shipY: 0,
-      shipAngle: 0,
-      velocityX: 0,
-      velocityY: 0,
-      accelerateInput: 0,
-      turnInput: 0,
       rocks: [],
       coins: [],
-      trail: [],
       animationFrame: 0,
       lastTime: 0,
-      lastTrailSpawn: 0,
-      lastTrailX: 0,
-      lastTrailY: 0,
       devicePixelRatio: 1,
-      isDestroyed: false,
-      flashUntil: 0,
+      ships,
+      keyState: {
+        accelerateInput: 0,
+        turnInput: 0,
+      },
+      generation: isAiMode ? 1 : 0,
+      roundStartTime: 0,
+      roundDeadline: AI_ROUND_DURATION_MS,
+      nextGenerationScheduled: false,
+      championWeights: null,
+      championScore: 0,
+      lastReportedTimeLeft: AI_ROUND_DURATION_MS / 1000,
     };
 
     const keyMap = {
-      ArrowUp: { control: "accelerate", value: 1 },
-      KeyW: { control: "accelerate", value: 1 },
-      ArrowDown: { control: "accelerate", value: -1 },
-      KeyS: { control: "accelerate", value: -1 },
-      ArrowLeft: { control: "turn", value: -1 },
-      KeyA: { control: "turn", value: -1 },
-      ArrowRight: { control: "turn", value: 1 },
-      KeyD: { control: "turn", value: 1 },
+      ArrowUp: { control: "accelerateInput", value: 1 },
+      KeyW: { control: "accelerateInput", value: 1 },
+      ArrowDown: { control: "accelerateInput", value: -1 },
+      KeyS: { control: "accelerateInput", value: -1 },
+      ArrowLeft: { control: "turnInput", value: -1 },
+      KeyA: { control: "turnInput", value: -1 },
+      ArrowRight: { control: "turnInput", value: 1 },
+      KeyD: { control: "turnInput", value: 1 },
     };
 
-    const createRock = ({ worldX, worldY, radius }) => ({
-      worldX,
-      worldY,
-      radius,
-      rotation: Math.random() * Math.PI * 2,
-      points: Array.from({ length: 8 }, (_, index) => {
-        const angle = (Math.PI * 2 * index) / 8;
-        const variance = 0.68 + Math.random() * 0.45;
+    const syncHud = () => {
+      const baseHud = getHudState(mode, state.ships);
 
-        return { angle, variance };
-      }),
-    });
+      setHud({
+        ...baseHud,
+        generation: state.generation,
+        timeLeft: isAiMode
+          ? Math.max(0, Math.ceil((state.roundDeadline - state.lastTime) / 1000))
+          : 0,
+      });
+      state.lastReportedTimeLeft = isAiMode
+        ? Math.max(0, Math.ceil((state.roundDeadline - state.lastTime) / 1000))
+        : 0;
+    };
+
+    const selectBestShip = () =>
+      state.ships.reduce((best, ship) => {
+        if (!best) {
+          return ship;
+        }
+
+        return getShipFitness(ship) > getShipFitness(best) ? ship : best;
+      }, null);
 
     const createCoinWave = () =>
       COIN_LAYOUT.map((coin) => {
         const marginX = 0.08;
         const marginY = 0.1;
-        const shipWorldX = state.width === 0 ? 0.5 : state.shipX / state.width;
-        const shipWorldY = state.height === 0 ? 0.72 : state.shipY / state.height;
+        const referenceShip = state.ships[0];
+        const shipWorldX = state.width === 0 ? 0.5 : referenceShip.x / state.width;
+        const shipWorldY = state.height === 0 ? 0.72 : referenceShip.y / state.height;
         let worldX = coin.worldX;
         let worldY = coin.worldY;
         let attempts = 0;
@@ -143,6 +244,9 @@ export default function SpaceGame() {
       });
 
     const resize = () => {
+      const previousWidth = state.width || window.innerWidth;
+      const previousHeight = state.height || window.innerHeight;
+
       state.width = window.innerWidth;
       state.height = window.innerHeight;
       state.devicePixelRatio = window.devicePixelRatio || 1;
@@ -155,12 +259,17 @@ export default function SpaceGame() {
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.scale(state.devicePixelRatio, state.devicePixelRatio);
 
-      state.shipX = state.width / 2;
-      state.shipY = state.height * 0.72;
-      state.shipAngle = -Math.PI / 2;
-
       if (state.rocks.length === 0) {
         state.rocks = ROCK_LAYOUT.map(createRock);
+      }
+
+      if (state.ships[0].x === 0 && state.ships[0].y === 0) {
+        resetRound(false);
+      } else {
+        const scaleX = state.width / previousWidth;
+        const scaleY = state.height / previousHeight;
+
+        state.ships.forEach((ship) => ship.scalePosition(scaleX, scaleY));
       }
 
       if (state.coins.length === 0) {
@@ -168,19 +277,108 @@ export default function SpaceGame() {
       }
     };
 
-    const setControls = (code, pressed) => {
-      const binding = keyMap[code];
-
-      if (!binding) {
+    const applyGenerationWeights = () => {
+      if (!isAiMode) {
         return;
       }
 
-      if (binding.control === "turn") {
-        state.turnInput = pressed ? binding.value : state.turnInput === binding.value ? 0 : state.turnInput;
-      } else {
-        state.accelerateInput =
-          pressed ? binding.value : state.accelerateInput === binding.value ? 0 : state.accelerateInput;
+      if (!state.championWeights) {
+        state.championWeights = state.ships[0].getWeightSnapshot();
+        state.championScore = state.ships[0].score;
+        return;
       }
+
+      state.ships.forEach((ship, index) => {
+        if (index === 0) {
+          ship.inheritFrom(state.championWeights, { mutate: false });
+          return;
+        }
+
+        ship.inheritFrom(state.championWeights, {
+          mutate: true,
+          mutationScale: 0.04 + Math.random() * 0.07,
+        });
+      });
+    };
+
+    function resetRound(incrementGeneration) {
+      const spawnCenterX = state.width / 2;
+      const spawnBaseY = state.height * 0.72;
+
+      if (isAiMode) {
+        applyGenerationWeights();
+      }
+
+      state.ships.forEach((ship, index) => {
+        if (isAiMode) {
+          const row = Math.floor(index / 4);
+          const column = index % 4;
+          const spawnX = spawnCenterX + (column - 1.5) * 84 + (Math.random() - 0.5) * 28;
+          const spawnY = spawnBaseY + row * 56 + (Math.random() - 0.5) * 24;
+
+          ship.reset({
+            x: spawnX,
+            y: spawnY,
+            angle: -Math.PI / 2 + (Math.random() - 0.5) * 0.45,
+            score: state.championScore,
+          });
+        } else {
+          ship.reset({
+            x: spawnCenterX,
+            y: spawnBaseY,
+            angle: -Math.PI / 2,
+          });
+        }
+      });
+
+      state.coins = createCoinWave();
+      state.nextGenerationScheduled = false;
+
+      if (isAiMode) {
+        if (incrementGeneration) {
+          state.generation += 1;
+        }
+
+        state.roundStartTime = state.lastTime;
+        state.roundDeadline = state.lastTime + AI_ROUND_DURATION_MS;
+        state.lastReportedTimeLeft = AI_ROUND_DURATION_MS / 1000;
+      }
+    }
+
+    const advanceGeneration = () => {
+      if (!isAiMode || state.nextGenerationScheduled) {
+        return;
+      }
+
+      state.nextGenerationScheduled = true;
+
+      const bestShip = selectBestShip();
+
+      if (bestShip) {
+        if (state.championWeights) {
+          disposeWeightSnapshot(state.championWeights);
+        }
+
+        state.championWeights = bestShip.getWeightSnapshot();
+        state.championScore = bestShip.score;
+      }
+
+      resetRound(true);
+      syncHud();
+    };
+
+    const setControls = (code, pressed) => {
+      const binding = keyMap[code];
+
+      if (!binding || isAiMode) {
+        return;
+      }
+
+      state.keyState[binding.control] = pressed
+        ? binding.value
+        : state.keyState[binding.control] === binding.value
+          ? 0
+          : state.keyState[binding.control];
     };
 
     const drawBackground = () => {
@@ -205,122 +403,6 @@ export default function SpaceGame() {
 
       context.fillStyle = glow;
       context.fillRect(0, 0, state.width, state.height);
-    };
-
-    const drawShip = () => {
-      context.save();
-      context.translate(state.shipX, state.shipY);
-      context.rotate(state.shipAngle + Math.PI / 2);
-      context.globalAlpha = state.isDestroyed ? 0.35 : 1;
-
-      context.fillStyle = "#d9f6ff";
-      context.strokeStyle = "#7ce1ff";
-      context.lineWidth = 2;
-
-      context.beginPath();
-      context.moveTo(0, -24);
-      context.lineTo(16, 18);
-      context.lineTo(0, 10);
-      context.lineTo(-16, 18);
-      context.closePath();
-      context.fill();
-      context.stroke();
-
-      context.fillStyle = "rgba(124, 225, 255, 0.45)";
-      context.beginPath();
-      context.arc(0, -4, 6, 0, Math.PI * 2);
-      context.fill();
-
-      if (state.accelerateInput > 0) {
-        context.fillStyle = "rgba(255, 166, 77, 0.9)";
-        context.beginPath();
-        context.moveTo(-6, 18);
-        context.lineTo(0, 30 + Math.random() * 10);
-        context.lineTo(6, 18);
-        context.closePath();
-        context.fill();
-      }
-
-      if (state.accelerateInput < 0) {
-        const brakePulse = Math.random() * 6;
-
-        context.fillStyle = "rgba(118, 219, 255, 0.82)";
-        context.beginPath();
-        context.moveTo(-4, -10);
-        context.lineTo(-14 - brakePulse, -4);
-        context.lineTo(-4, 0);
-        context.closePath();
-        context.fill();
-
-        context.beginPath();
-        context.moveTo(4, -10);
-        context.lineTo(14 + brakePulse, -4);
-        context.lineTo(4, 0);
-        context.closePath();
-        context.fill();
-      }
-
-      context.restore();
-    };
-
-    const updateTrail = (delta, time) => {
-      state.trail = state.trail
-        .map((marker) => ({
-          ...marker,
-          age: marker.age + delta,
-        }))
-        .filter((marker) => marker.age < marker.life);
-
-      if (state.isDestroyed) {
-        return;
-      }
-
-      const speed = Math.hypot(state.velocityX, state.velocityY);
-      const thrusterOffsetX = -Math.cos(state.shipAngle) * 18;
-      const thrusterOffsetY = -Math.sin(state.shipAngle) * 18;
-      const trailX = state.shipX + thrusterOffsetX;
-      const trailY = state.shipY + thrusterOffsetY;
-      const distanceSinceLastMarker = Math.hypot(
-        trailX - state.lastTrailX,
-        trailY - state.lastTrailY
-      );
-
-      if (speed < 0.16 || time - state.lastTrailSpawn < 55 || distanceSinceLastMarker < 16) {
-        return;
-      }
-
-      state.lastTrailSpawn = time;
-      state.lastTrailX = trailX;
-      state.lastTrailY = trailY;
-
-      state.trail.push({
-        x: trailX,
-        y: trailY,
-        age: 0,
-        life: 10000 + Math.random() * 600,
-        radius: 4 + Math.min(speed * 2.2, 5),
-      });
-
-      if (state.trail.length > 180) {
-        state.trail.splice(0, state.trail.length - 180);
-      }
-    };
-
-    const drawTrail = () => {
-      for (const marker of state.trail) {
-        const progress = marker.age / marker.life;
-        const alpha = Math.pow(1 - progress, 1.35) * 0.4;
-        const growth = Math.exp(progress * 1.35);
-        const radius = marker.radius * growth;
-
-        context.save();
-        context.globalAlpha = alpha;
-        context.fillStyle = progress < 0.45 ? "#9fe7ff" : "#6c90b2";
-        context.beginPath();
-        context.arc(marker.x, marker.y, radius, 0, Math.PI * 2);
-        context.fill();
-        context.restore();
-      }
     };
 
     const drawRocks = () => {
@@ -387,66 +469,11 @@ export default function SpaceGame() {
       }
     };
 
-    const collectCoins = () => {
-      if (state.isDestroyed) {
+    const drawDestroyedOverlay = () => {
+      const ship = state.ships[0];
+
+      if (isAiMode || !ship.isDestroyed) {
         return;
-      }
-
-      let collectedAny = false;
-
-      state.coins = state.coins.filter((coin) => {
-        const coinX = coin.worldX * state.width;
-        const coinY = coin.worldY * state.height;
-        const dx = coinX - state.shipX;
-        const dy = coinY - state.shipY;
-        const collisionDistance = coin.radius + SHIP_COLLISION_RADIUS;
-
-        if (dx * dx + dy * dy <= collisionDistance * collisionDistance) {
-          collectedAny = true;
-          setScore((currentScore) => currentScore + 1);
-          return false;
-        }
-
-        return true;
-      });
-
-      if (collectedAny && state.coins.length === 0) {
-        state.coins = createCoinWave();
-      }
-    };
-
-    const detectCollisions = (time) => {
-      if (state.isDestroyed) {
-        return;
-      }
-
-      for (const rock of state.rocks) {
-        const rockX = rock.worldX * state.width;
-        const rockY = rock.worldY * state.height;
-        const dx = rockX - state.shipX;
-        const dy = rockY - state.shipY;
-        const collisionDistance = rock.radius + SHIP_COLLISION_RADIUS;
-
-        if (dx * dx + dy * dy <= collisionDistance * collisionDistance) {
-          state.isDestroyed = true;
-          state.turnInput = 0;
-          state.accelerateInput = 0;
-          state.velocityX = 0;
-          state.velocityY = 0;
-          state.flashUntil = time + 900;
-          break;
-        }
-      }
-    };
-
-    const drawDestroyedOverlay = (time) => {
-      if (!state.isDestroyed) {
-        return;
-      }
-
-      if (time < state.flashUntil) {
-        context.fillStyle = `rgba(255, 96, 96, ${0.1 + ((state.flashUntil - time) / 900) * 0.22})`;
-        context.fillRect(0, 0, state.width, state.height);
       }
 
       context.fillStyle = "#ffb8b8";
@@ -456,31 +483,106 @@ export default function SpaceGame() {
 
       context.fillStyle = "rgba(244, 251, 255, 0.78)";
       context.font = "500 18px var(--font-geist-sans)";
-      context.fillText("Refresh to fly again", state.width / 2, state.height * 0.57);
+      context.fillText("Choose a mode to fly again", state.width / 2, state.height * 0.57);
     };
 
     const render = (time) => {
       const delta = Math.min((time - state.lastTime) || 16, 32);
       state.lastTime = time;
 
-      if (!state.isDestroyed) {
-        state.shipAngle += state.turnInput * 0.0045 * delta;
-        state.velocityX += Math.cos(state.shipAngle) * state.accelerateInput * 0.03 * delta;
-        state.velocityY += Math.sin(state.shipAngle) * state.accelerateInput * 0.03 * delta;
-
-        state.shipX = clamp(state.shipX + state.velocityX * 0.016, 48, state.width - 48);
-        state.shipY = clamp(state.shipY + state.velocityY * 0.016, 64, state.height - 64);
+      if (!isAiMode) {
+        state.ships[0].setControls(state.keyState);
       }
 
-      updateTrail(delta, time);
+      for (const ship of state.ships) {
+        if (isAiMode && ship instanceof AISpaceShip) {
+          ship.decide(
+            {
+              coins: state.coins,
+              rocks: state.rocks,
+              width: state.width,
+              height: state.height,
+            },
+            time
+          );
+        }
+
+        ship.updateMotion(delta, {
+          width: state.width,
+          height: state.height,
+        });
+        ship.updateTrail(delta, time);
+      }
+
+      let hudNeedsSync = false;
+
+      for (const ship of state.ships) {
+        if (ship.applyIdlePenalty(time)) {
+          hudNeedsSync = true;
+        }
+
+        const result = ship.collectCoins(state.coins, {
+          width: state.width,
+          height: state.height,
+        });
+
+        if (result.collected > 0) {
+          state.coins = result.coins;
+          hudNeedsSync = true;
+        }
+
+        if (
+          ship.detectRockCollision(
+            state.rocks,
+            {
+              width: state.width,
+              height: state.height,
+            },
+            time
+          )
+        ) {
+          hudNeedsSync = true;
+        }
+      }
+
+      if (state.coins.length === 0) {
+        state.coins = createCoinWave();
+        hudNeedsSync = true;
+      }
+
+      if (isAiMode) {
+        const aliveCount = state.ships.filter((ship) => !ship.isDestroyed).length;
+        const timeExpired = time >= state.roundDeadline;
+        const nextTimeLeft = Math.max(0, Math.ceil((state.roundDeadline - time) / 1000));
+
+        if (aliveCount === 0 || timeExpired) {
+          advanceGeneration();
+          hudNeedsSync = false;
+        } else if (nextTimeLeft !== state.lastReportedTimeLeft) {
+          hudNeedsSync = true;
+        }
+      }
+
       drawBackground();
-      drawTrail();
+
+      for (const ship of state.ships) {
+        ship.drawTrail(context);
+      }
+
       drawRocks();
       drawCoins(time);
-      collectCoins();
-      detectCollisions(time);
-      drawShip();
-      drawDestroyedOverlay(time);
+
+      for (const ship of state.ships) {
+        ship.drawImpact(context, time);
+        ship.draw(context);
+        ship.drawScoreLabel(context);
+      }
+
+      drawDestroyedOverlay();
+
+      if (hudNeedsSync) {
+        syncHud();
+      }
 
       state.animationFrame = window.requestAnimationFrame(render);
     };
@@ -494,6 +596,7 @@ export default function SpaceGame() {
     };
 
     resize();
+    syncHud();
     window.addEventListener("resize", resize);
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
@@ -504,29 +607,63 @@ export default function SpaceGame() {
       window.removeEventListener("resize", resize);
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      state.ships.forEach((ship) => {
+        if (ship instanceof AISpaceShip) {
+          ship.dispose();
+        }
+      });
+      if (state.championWeights) {
+        disposeWeightSnapshot(state.championWeights);
+      }
     };
-  }, [hasStarted]);
+  }, [mode]);
 
-  if (!hasStarted) {
+  if (!mode) {
     return (
       <section className={styles.startScreen} aria-label="Start screen">
         <div className={styles.startCard}>
           <p className={styles.startEyebrow}>Sector A-01</p>
           <h2>Space Game Command</h2>
           <p className={styles.startCopy}>
-            Pilot the ship with the arrow keys or WASD and avoid the asteroid
-            field.
+            Pilot manually with the arrow keys or WASD, or launch twelve randomized
+            TensorFlow.js ships and watch how each one reacts to rocks and coins.
           </p>
-          <button
-            type="button"
-            className={styles.startButton}
-            onClick={() => {
-              setScore(0);
-              setHasStarted(true);
+          <div className={styles.buttonRow}>
+            <button
+              type="button"
+              className={styles.startButton}
+              onClick={() => {
+              setHud({
+                score: 0,
+                bestScore: 0,
+                aliveCount: 0,
+                totalShips: 0,
+                generation: 0,
+                timeLeft: 0,
+              });
+              setMode("player");
             }}
-          >
-            Start a New Game
-          </button>
+            >
+              Start a New Game
+            </button>
+            <button
+              type="button"
+              className={styles.secondaryButton}
+              onClick={() => {
+                setHud({
+                  score: 0,
+                  bestScore: 0,
+                  aliveCount: AI_SHIP_COUNT,
+                  totalShips: AI_SHIP_COUNT,
+                  generation: 1,
+                  timeLeft: AI_ROUND_DURATION_MS / 1000,
+                });
+                setMode("ai");
+              }}
+            >
+              Train AI
+            </button>
+          </div>
         </div>
       </section>
     );
@@ -536,10 +673,56 @@ export default function SpaceGame() {
     <>
       <canvas ref={canvasRef} aria-label="Space game canvas" />
       <div className={styles.scoreboardPanel}>
-        <div className={styles.scoreboard} aria-label={`Score: ${score}`}>
-          <span className={styles.scoreLabel}>Score</span>
-          <strong className={styles.scoreValue}>{score}</strong>
-        </div>
+        {mode === "ai" ? (
+          <div className={styles.hudGrid} aria-label="AI training dashboard">
+            <div className={styles.scoreboard}>
+              <span className={styles.scoreLabel}>Generation</span>
+              <strong className={styles.scoreValue}>{hud.generation}</strong>
+            </div>
+            <div className={styles.scoreboard}>
+              <span className={styles.scoreLabel}>Mode</span>
+              <strong className={styles.scoreValue}>AI</strong>
+            </div>
+            <div className={styles.scoreboard}>
+              <span className={styles.scoreLabel}>Timer</span>
+              <strong className={styles.scoreValue}>{hud.timeLeft}s</strong>
+            </div>
+            <div className={styles.scoreboard}>
+              <span className={styles.scoreLabel}>Alive</span>
+              <strong className={styles.scoreValue}>
+                {hud.aliveCount}/{hud.totalShips}
+              </strong>
+            </div>
+            <div className={styles.scoreboard}>
+              <span className={styles.scoreLabel}>Best Score</span>
+              <strong className={styles.scoreValue}>{hud.bestScore}</strong>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.scoreboard} aria-label={`Score: ${hud.score}`}>
+            <span className={styles.scoreLabel}>Score</span>
+            <strong className={styles.scoreValue}>{hud.score}</strong>
+          </div>
+        )}
+      </div>
+      <div className={styles.controlsPanel}>
+        <button
+          type="button"
+          className={styles.ghostButton}
+          onClick={() => {
+            setMode(null);
+            setHud({
+              score: 0,
+              bestScore: 0,
+              aliveCount: 0,
+              totalShips: 0,
+              generation: 0,
+              timeLeft: 0,
+            });
+          }}
+        >
+          Exit
+        </button>
       </div>
     </>
   );
