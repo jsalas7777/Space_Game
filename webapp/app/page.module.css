@@ -6,6 +6,39 @@
   font-family: var(--font-geist-sans);
 }
 
+.projectLink {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  z-index: 2;
+  transform: translateX(-50%);
+  padding: 0.7rem 1rem;
+  border: 1px solid rgba(124, 225, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(5, 8, 22, 0.72);
+  color: #dff7ff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.26);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.projectLink:hover {
+  transform: translateX(-50%) translateY(-1px);
+  border-color: rgba(124, 225, 255, 0.46);
+  background: rgba(8, 19, 41, 0.82);
+}
+
+.projectLink:focus-visible {
+  outline: 2px solid #f4fbff;
+  outline-offset: 4px;
+}
+
 .page canvas {
   display: block;
   width: 100%;
@@ -212,6 +245,13 @@
     top: auto;
     right: 1rem;
     bottom: 1rem;
+  }
+
+  .projectLink {
+    bottom: 5.25rem;
+    width: calc(100% - 2rem);
+    max-width: 24rem;
+    text-align: center;
   }
 
   .scoreboard {
